@@ -451,6 +451,16 @@
       قائمة العقود والتوثيق
       <span class="count" id="navCountContracts">0</span>
     </div>
+    <div class="nav-item" data-view="highway">
+      <svg class="ic" viewBox="0 0 24 24"><path d="M4 19 9 3h2l5 16"/><path d="M6.5 14h7"/><path d="M12 3v16"/><path d="M12 3l5 16"/><path d="M12 19h9"/><path d="M3 19h4"/></svg>
+      قائمة محطات الطرق السريعة
+      <span class="count" id="navCountHighway">0</span>
+    </div>
+    <div class="nav-item" data-view="suspended">
+      <svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9v6M14.5 9v6"/></svg>
+      قائمة المحطات الموقوفة
+      <span class="count" id="navCountSuspended">0</span>
+    </div>
 
     <div class="nav-group-label">الإجراءات</div>
     <div class="nav-item" data-view="newrequest">
@@ -519,11 +529,16 @@ const SEED_CONTRACTS = JSON.parse(document.getElementById('seedContracts').textC
 
 let STATIONS = [];
 let CONTRACTS = [];
+let HIGHWAY_STATIONS = [];
+let SUSPENDED_STATIONS = [];
 let currentView = 'dashboard';
 let stationFilters = { q:'', region:'', status:'' };
 let contractFilters = { q:'', status:'' };
-let stationPage = 1, contractPage = 1;
+let highwayFilters = { q:'', region:'' };
+let suspendedFilters = { q:'', authority:'' };
+let stationPage = 1, contractPage = 1, highwayPage = 1, suspendedPage = 1;
 const PAGE_SIZE = 12;
+const SUSPENSION_AUTHORITIES = ['النائب العام','وزارة الداخلية','لجنة الأزمة','جهة أخرى'];
 
 /* ---------- status taxonomy ---------- */
 const STATION_STATUS_META = {
@@ -590,6 +605,8 @@ async function loadData(){
   if(!fbReady){
     STATIONS = SEED_STATIONS.map(x=>({...x}));
     CONTRACTS = SEED_CONTRACTS.map(x=>({...x}));
+    HIGHWAY_STATIONS = [];
+    SUSPENDED_STATIONS = [];
     setSyncStatus('offline');
     return;
   }
@@ -609,12 +626,28 @@ async function loadData(){
       CONTRACTS = SEED_CONTRACTS.map(x=>({...x}));
       await db.collection('bpmc_data').doc('contracts').set({list: CONTRACTS, updatedAt: firebase.firestore.FieldValue.serverTimestamp()});
     }
+    const hwDoc = await db.collection('bpmc_data').doc('highway_stations').get();
+    if(hwDoc.exists && Array.isArray(hwDoc.data().list)){
+      HIGHWAY_STATIONS = hwDoc.data().list;
+    } else {
+      HIGHWAY_STATIONS = [];
+      await db.collection('bpmc_data').doc('highway_stations').set({list: HIGHWAY_STATIONS, updatedAt: firebase.firestore.FieldValue.serverTimestamp()});
+    }
+    const suDoc = await db.collection('bpmc_data').doc('suspended_stations').get();
+    if(suDoc.exists && Array.isArray(suDoc.data().list)){
+      SUSPENDED_STATIONS = suDoc.data().list;
+    } else {
+      SUSPENDED_STATIONS = [];
+      await db.collection('bpmc_data').doc('suspended_stations').set({list: SUSPENDED_STATIONS, updatedAt: firebase.firestore.FieldValue.serverTimestamp()});
+    }
     setSyncStatus('live');
     attachRealtimeListeners();
   }catch(e){
     console.error('Firestore load failed', e);
     STATIONS = STATIONS.length ? STATIONS : SEED_STATIONS.map(x=>({...x}));
     CONTRACTS = CONTRACTS.length ? CONTRACTS : SEED_CONTRACTS.map(x=>({...x}));
+    HIGHWAY_STATIONS = HIGHWAY_STATIONS.length ? HIGHWAY_STATIONS : [];
+    SUSPENDED_STATIONS = SUSPENDED_STATIONS.length ? SUSPENDED_STATIONS : [];
     setSyncStatus('offline');
     toast('تعذر الاتصال بقاعدة البيانات المشتركة — يتم العمل ببيانات محلية مؤقتة', 'err');
   }
@@ -622,6 +655,8 @@ async function loadData(){
 
 let suppressNextStationsSnapshot = false;
 let suppressNextContractsSnapshot = false;
+let suppressNextHighwaySnapshot = false;
+let suppressNextSuspendedSnapshot = false;
 function attachRealtimeListeners(){
   db.collection('bpmc_data').doc('stations').onSnapshot(doc=>{
     if(suppressNextStationsSnapshot){ suppressNextStationsSnapshot=false; return; }
@@ -638,6 +673,22 @@ function attachRealtimeListeners(){
       if(currentView==='contracts' || currentView==='dashboard') render();
     }
   }, err=>{ console.error('contracts snapshot error', err); setSyncStatus('offline'); });
+
+  db.collection('bpmc_data').doc('highway_stations').onSnapshot(doc=>{
+    if(suppressNextHighwaySnapshot){ suppressNextHighwaySnapshot=false; return; }
+    if(doc.exists && Array.isArray(doc.data().list)){
+      HIGHWAY_STATIONS = doc.data().list;
+      if(currentView==='highway' || currentView==='dashboard') render();
+    }
+  }, err=>{ console.error('highway snapshot error', err); setSyncStatus('offline'); });
+
+  db.collection('bpmc_data').doc('suspended_stations').onSnapshot(doc=>{
+    if(suppressNextSuspendedSnapshot){ suppressNextSuspendedSnapshot=false; return; }
+    if(doc.exists && Array.isArray(doc.data().list)){
+      SUSPENDED_STATIONS = doc.data().list;
+      if(currentView==='suspended' || currentView==='dashboard') render();
+    }
+  }, err=>{ console.error('suspended snapshot error', err); setSyncStatus('offline'); });
 }
 
 async function saveStations(){
@@ -653,6 +704,20 @@ async function saveContracts(){
     suppressNextContractsSnapshot = true;
     await db.collection('bpmc_data').doc('contracts').set({list: CONTRACTS, updatedAt: firebase.firestore.FieldValue.serverTimestamp()});
   }catch(e){ console.error('save contracts failed', e); toast('تعذر حفظ البيانات على قاعدة البيانات المشتركة', 'err'); }
+}
+async function saveHighway(){
+  if(!fbReady || !db){ toast('غير متصل بقاعدة البيانات — لم يتم الحفظ على الشبكة', 'err'); return; }
+  try{
+    suppressNextHighwaySnapshot = true;
+    await db.collection('bpmc_data').doc('highway_stations').set({list: HIGHWAY_STATIONS, updatedAt: firebase.firestore.FieldValue.serverTimestamp()});
+  }catch(e){ console.error('save highway failed', e); toast('تعذر حفظ البيانات على قاعدة البيانات المشتركة', 'err'); }
+}
+async function saveSuspended(){
+  if(!fbReady || !db){ toast('غير متصل بقاعدة البيانات — لم يتم الحفظ على الشبكة', 'err'); return; }
+  try{
+    suppressNextSuspendedSnapshot = true;
+    await db.collection('bpmc_data').doc('suspended_stations').set({list: SUSPENDED_STATIONS, updatedAt: firebase.firestore.FieldValue.serverTimestamp()});
+  }catch(e){ console.error('save suspended failed', e); toast('تعذر حفظ البيانات على قاعدة البيانات المشتركة', 'err'); }
 }
 
 /* ---------- helpers ---------- */
@@ -727,6 +792,8 @@ function switchView(view){
     dashboard:['لوحة المعلومات','نظرة عامة على بيانات محطات الوقود والعقود'],
     stations:['قائمة المحطات','بيانات محطات الوقود — الإنشاء، الضم، والتشغيل'],
     contracts:['قائمة العقود والتوثيق','بيانات المتعاقدين مع إدارة العقود والتوثيق'],
+    highway:['قائمة محطات الطرق السريعة','بيانات محطات الوقود الواقعة على الطرق السريعة'],
+    suspended:['قائمة المحطات الموقوفة','المحطات الموقوفة بقرار من النائب العام أو وزارة الداخلية أو جهة أخرى'],
     newrequest:['طلب جديد','تسجيل طلب إنشاء أو ضم محطة جديدة'],
   };
   document.getElementById('topbarTitle').textContent = titles[view][0];
@@ -740,9 +807,13 @@ function render(){
   const c = document.getElementById('contentArea');
   document.getElementById('navCountStations').textContent = STATIONS.length;
   document.getElementById('navCountContracts').textContent = CONTRACTS.length;
+  document.getElementById('navCountHighway').textContent = HIGHWAY_STATIONS.length;
+  document.getElementById('navCountSuspended').textContent = SUSPENDED_STATIONS.length;
   if(currentView==='dashboard') c.innerHTML = renderDashboard();
   else if(currentView==='stations'){ c.innerHTML = renderStationsView(); bindStationsView(); }
   else if(currentView==='contracts'){ c.innerHTML = renderContractsView(); bindContractsView(); }
+  else if(currentView==='highway'){ c.innerHTML = renderHighwayView(); bindHighwayView(); }
+  else if(currentView==='suspended'){ c.innerHTML = renderSuspendedView(); bindSuspendedView(); }
   else if(currentView==='newrequest'){ c.innerHTML = renderNewRequestView(); bindNewRequestView(); }
 }
 
@@ -1043,6 +1114,190 @@ function bindContractsView(){
   document.getElementById('ctExportBtn').addEventListener('click', ()=> exportContractsPDF());
 }
 
+/* ============ HIGHWAY STATIONS VIEW (محطات الطرق السريعة) ============ */
+function filteredHighway(){
+  return HIGHWAY_STATIONS.filter(s=>{
+    if(highwayFilters.q){
+      const q = highwayFilters.q.toLowerCase();
+      const hay = [s.name,s.location,s.num,s.phone].map(x=>String(x||'').toLowerCase()).join(' ');
+      if(!hay.includes(q)) return false;
+    }
+    if(highwayFilters.region && s.region!==highwayFilters.region) return false;
+    return true;
+  });
+}
+function renderHighwayView(){
+  const list = filteredHighway();
+  const totalPages = Math.max(1, Math.ceil(list.length/PAGE_SIZE));
+  highwayPage = Math.min(highwayPage, totalPages);
+  const pageItems = list.slice((highwayPage-1)*PAGE_SIZE, highwayPage*PAGE_SIZE);
+
+  return `
+  <div class="toolbar">
+    <div class="search-box">
+      <svg class="ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+      <input id="hwSearch" placeholder="بحث باسم المحطة، الموقع أو الهاتف..." value="${esc(highwayFilters.q)}">
+    </div>
+    <select class="filter-select" id="hwRegionFilter">
+      <option value="">كل المناطق</option>
+      ${REGIONS.map(r=>`<option value="${r}" ${highwayFilters.region===r?'selected':''}>${r}</option>`).join('')}
+    </select>
+    <button class="btn btn-ghost" id="hwExportBtn">
+      <svg class="ic" viewBox="0 0 24 24" style="width:14px;height:14px;"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
+      تصدير PDF
+    </button>
+    <button class="btn btn-primary" id="hwAddBtn">
+      <svg class="ic" viewBox="0 0 24 24" style="width:14px;height:14px;"><path d="M12 5v14M5 12h14"/></svg>
+      إضافة محطة طريق سريع
+    </button>
+  </div>
+
+  <div class="table-wrap">
+    ${pageItems.length ? `
+    <table>
+      <thead><tr>
+        <th>م</th><th>اسم المحطة</th><th>رقم المحطة</th><th>الموقع على الطريق</th><th>المنطقة</th><th>الهاتف</th><th>الحالة</th><th>ملاحظات</th><th>إجراءات</th>
+      </tr></thead>
+      <tbody>
+        ${pageItems.map(s=>{
+          const m = statusMeta(s.status);
+          return `<tr>
+            <td class="num-col">${s.id}</td>
+            <td class="name-col">${esc(s.name)}</td>
+            <td>${esc(s.num)||'<span class="muted">—</span>'}</td>
+            <td>${esc(s.location)||'<span class="muted">—</span>'}</td>
+            <td>${s.region?`<span class="region-chip">${esc(s.region)}</span>`:'<span class="muted">—</span>'}</td>
+            <td>${esc(s.phone)||'<span class="muted">—</span>'}</td>
+            <td><span class="badge" style="color:${m.color};background:${m.bg}"><span class="badge-dot"></span>${esc(s.status)||'غير محدد'}</span></td>
+            <td><span class="muted">${esc(s.notes)||'—'}</span></td>
+            <td class="row-actions">
+              <button class="btn btn-ghost btn-icon btn-sm" onclick="openHighwayModal(${s.id})" title="تعديل">
+                <svg class="ic" viewBox="0 0 24 24" style="width:14px;height:14px;"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+              </button>
+              <button class="btn btn-danger-ghost btn-icon btn-sm" onclick="confirmDeleteHighway(${s.id})" title="حذف">
+                <svg class="ic" viewBox="0 0 24 24" style="width:14px;height:14px;"><path d="M3 6h18"/><path d="M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>
+              </button>
+            </td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>
+    <div class="pager">
+      <span>عرض ${pageItems.length} من ${list.length} محطة</span>
+      <div class="pager-btns">
+        <button ${highwayPage<=1?'disabled':''} onclick="highwayPage--;render()">السابق</button>
+        <button class="active">${highwayPage} / ${totalPages}</button>
+        <button ${highwayPage>=totalPages?'disabled':''} onclick="highwayPage++;render()">التالي</button>
+      </div>
+    </div>
+    ` : `
+    <div class="empty-state">
+      <svg viewBox="0 0 24 24"><path d="M4 19 9 3h2l5 16"/><path d="M12 3v16"/></svg>
+      <div class="et">لا توجد محطات طرق سريعة مسجلة بعد</div>
+      <div class="es">اضغط "إضافة محطة طريق سريع" لتسجيل أول محطة</div>
+    </div>`}
+  </div>
+  `;
+}
+function bindHighwayView(){
+  const s = document.getElementById('hwSearch');
+  s.addEventListener('input', ()=>{ highwayFilters.q = s.value; highwayPage=1; render(); s.focus(); s.setSelectionRange(s.value.length,s.value.length); });
+  document.getElementById('hwRegionFilter').addEventListener('change', e=>{ highwayFilters.region = e.target.value; highwayPage=1; render(); });
+  document.getElementById('hwAddBtn').addEventListener('click', ()=> openHighwayModal(null));
+  document.getElementById('hwExportBtn').addEventListener('click', ()=> exportHighwayPDF());
+}
+
+/* ============ SUSPENDED STATIONS VIEW (المحطات الموقوفة) ============ */
+function filteredSuspended(){
+  return SUSPENDED_STATIONS.filter(s=>{
+    if(suspendedFilters.q){
+      const q = suspendedFilters.q.toLowerCase();
+      const hay = [s.name,s.location,s.phone].map(x=>String(x||'').toLowerCase()).join(' ');
+      if(!hay.includes(q)) return false;
+    }
+    if(suspendedFilters.authority && s.authority!==suspendedFilters.authority) return false;
+    return true;
+  });
+}
+function renderSuspendedView(){
+  const list = filteredSuspended();
+  const totalPages = Math.max(1, Math.ceil(list.length/PAGE_SIZE));
+  suspendedPage = Math.min(suspendedPage, totalPages);
+  const pageItems = list.slice((suspendedPage-1)*PAGE_SIZE, suspendedPage*PAGE_SIZE);
+
+  return `
+  <div class="toolbar">
+    <div class="search-box">
+      <svg class="ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+      <input id="suSearch" placeholder="بحث باسم المحطة، الموقع أو الهاتف..." value="${esc(suspendedFilters.q)}">
+    </div>
+    <select class="filter-select" id="suAuthorityFilter">
+      <option value="">كل الجهات</option>
+      ${SUSPENSION_AUTHORITIES.map(a=>`<option value="${a}" ${suspendedFilters.authority===a?'selected':''}>${a}</option>`).join('')}
+    </select>
+    <button class="btn btn-ghost" id="suExportBtn">
+      <svg class="ic" viewBox="0 0 24 24" style="width:14px;height:14px;"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
+      تصدير PDF
+    </button>
+    <button class="btn btn-accent" id="suAddBtn">
+      <svg class="ic" viewBox="0 0 24 24" style="width:14px;height:14px;"><path d="M12 5v14M5 12h14"/></svg>
+      إضافة محطة موقوفة
+    </button>
+  </div>
+
+  <div class="table-wrap">
+    ${pageItems.length ? `
+    <table>
+      <thead><tr>
+        <th>م</th><th>اسم المحطة</th><th>الموقع</th><th>المنطقة</th><th>الهاتف</th><th>الجهة المصدرة للقرار</th><th>تاريخ الإيقاف</th><th>ملاحظات</th><th>إجراءات</th>
+      </tr></thead>
+      <tbody>
+        ${pageItems.map(s=>`
+          <tr>
+            <td class="num-col">${s.id}</td>
+            <td class="name-col">${esc(s.name)}</td>
+            <td>${esc(s.location)||'<span class="muted">—</span>'}</td>
+            <td>${s.region?`<span class="region-chip">${esc(s.region)}</span>`:'<span class="muted">—</span>'}</td>
+            <td>${esc(s.phone)||'<span class="muted">—</span>'}</td>
+            <td><span class="badge" style="color:var(--red-2);background:var(--red-bg)"><span class="badge-dot"></span>${esc(s.authority)||'غير محدد'}</span></td>
+            <td>${fmtDate(s.suspension_date)}</td>
+            <td><span class="muted">${esc(s.notes)||'—'}</span></td>
+            <td class="row-actions">
+              <button class="btn btn-ghost btn-icon btn-sm" onclick="openSuspendedModal(${s.id})" title="تعديل">
+                <svg class="ic" viewBox="0 0 24 24" style="width:14px;height:14px;"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+              </button>
+              <button class="btn btn-danger-ghost btn-icon btn-sm" onclick="confirmDeleteSuspended(${s.id})" title="حذف">
+                <svg class="ic" viewBox="0 0 24 24" style="width:14px;height:14px;"><path d="M3 6h18"/><path d="M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>
+              </button>
+            </td>
+          </tr>`).join('')}
+      </tbody>
+    </table>
+    <div class="pager">
+      <span>عرض ${pageItems.length} من ${list.length} محطة موقوفة</span>
+      <div class="pager-btns">
+        <button ${suspendedPage<=1?'disabled':''} onclick="suspendedPage--;render()">السابق</button>
+        <button class="active">${suspendedPage} / ${totalPages}</button>
+        <button ${suspendedPage>=totalPages?'disabled':''} onclick="suspendedPage++;render()">التالي</button>
+      </div>
+    </div>
+    ` : `
+    <div class="empty-state">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9v6M14.5 9v6"/></svg>
+      <div class="et">لا توجد محطات موقوفة مسجلة</div>
+      <div class="es">اضغط "إضافة محطة موقوفة" لتسجيل محطة تم إيقافها بقرار رسمي</div>
+    </div>`}
+  </div>
+  `;
+}
+function bindSuspendedView(){
+  const s = document.getElementById('suSearch');
+  s.addEventListener('input', ()=>{ suspendedFilters.q = s.value; suspendedPage=1; render(); s.focus(); s.setSelectionRange(s.value.length,s.value.length); });
+  document.getElementById('suAuthorityFilter').addEventListener('change', e=>{ suspendedFilters.authority = e.target.value; suspendedPage=1; render(); });
+  document.getElementById('suAddBtn').addEventListener('click', ()=> openSuspendedModal(null));
+  document.getElementById('suExportBtn').addEventListener('click', ()=> exportSuspendedPDF());
+}
+
 /* ============ NEW REQUEST VIEW ============ */
 function renderNewRequestView(){
   return `
@@ -1331,6 +1586,240 @@ async function deleteContract(id){
   render();
 }
 
+/* ---- Highway station modal ---- */
+function openHighwayModal(id){
+  const editing = id!==null && id!==undefined;
+  const s = editing ? HIGHWAY_STATIONS.find(x=>x.id===id) : {
+    name:'', num:'', location:'', region:'', phone:'', status:'عاملة', notes:''
+  };
+  openOverlay(`
+  <div class="modal-overlay">
+    <div class="modal-box">
+      <div class="modal-head">
+        <div><h3>${editing?'تعديل بيانات محطة طريق سريع':'إضافة محطة طريق سريع'}</h3><div class="msub">${editing?('محطة رقم '+s.id):'قائمة محطات الطرق السريعة'}</div></div>
+        <button class="modal-close" onclick="closeModal()"><svg class="ic" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+      </div>
+      <div class="modal-body">
+        <form id="highwayForm">
+          <div class="form-grid">
+            <div class="field full">
+              <label>اسم المحطة <span class="req">*</span></label>
+              <input type="text" id="hf_name" value="${esc(s.name)}" required>
+            </div>
+            <div class="field">
+              <label>رقم المحطة</label>
+              <input type="text" id="hf_num" value="${esc(s.num)}">
+            </div>
+            <div class="field">
+              <label>الموقع على الطريق</label>
+              <input type="text" id="hf_location" value="${esc(s.location)}" placeholder="مثال: طريق طرابلس - مصراتة، كم 45">
+            </div>
+            <div class="field">
+              <label>منطقة العمليات <span class="req">*</span></label>
+              <select id="hf_region" required>
+                <option value="">اختر المنطقة</option>
+                ${REGIONS.map(r=>`<option value="${r}" ${s.region===r?'selected':''}>${r}</option>`).join('')}
+              </select>
+            </div>
+            <div class="field">
+              <label>رقم الهاتف</label>
+              <input type="text" id="hf_phone" value="${esc(s.phone)}">
+            </div>
+            <div class="field full">
+              <label>الحالة</label>
+              <select id="hf_status">
+                ${ALL_STATION_STATUSES.map(st=>`<option value="${esc(st)}" ${s.status===st?'selected':''}>${esc(st)}</option>`).join('')}
+              </select>
+            </div>
+            <div class="field full">
+              <label>ملاحظات</label>
+              <textarea id="hf_notes">${esc(s.notes)}</textarea>
+            </div>
+          </div>
+        </form>
+      </div>
+      <div class="modal-foot">
+        <button class="btn btn-ghost" onclick="closeModal()">إلغاء</button>
+        <button class="btn btn-primary" onclick="saveHighwayStation(${editing?s.id:'null'})">
+          <svg class="ic" viewBox="0 0 24 24" style="width:14px;height:14px;"><path d="M20 6 9 17l-5-5"/></svg>
+          ${editing?'حفظ التعديلات':'إضافة المحطة'}
+        </button>
+      </div>
+    </div>
+  </div>
+  `);
+}
+async function saveHighwayStation(id){
+  const name = document.getElementById('hf_name').value.trim();
+  const region = document.getElementById('hf_region').value;
+  if(!name){ toast('يرجى إدخال اسم المحطة', 'err'); return; }
+  if(!region){ toast('يرجى اختيار منطقة العمليات', 'err'); return; }
+  const data = {
+    name, region,
+    num: document.getElementById('hf_num').value.trim(),
+    location: document.getElementById('hf_location').value.trim(),
+    phone: document.getElementById('hf_phone').value.trim(),
+    status: document.getElementById('hf_status').value,
+    notes: document.getElementById('hf_notes').value.trim(),
+  };
+  if(id){
+    const idx = HIGHWAY_STATIONS.findIndex(x=>x.id===id);
+    HIGHWAY_STATIONS[idx] = {...HIGHWAY_STATIONS[idx], ...data};
+    toast('تم حفظ تعديلات المحطة بنجاح');
+  } else {
+    data.id = nextId(HIGHWAY_STATIONS);
+    HIGHWAY_STATIONS.push(data);
+    toast('تمت إضافة المحطة بنجاح');
+  }
+  await saveHighway();
+  closeModal();
+  if(currentView!=='highway') switchView('highway'); else render();
+}
+function confirmDeleteHighway(id){
+  const s = HIGHWAY_STATIONS.find(x=>x.id===id);
+  openOverlay(`
+  <div class="modal-overlay">
+    <div class="modal-box confirm-box" style="max-width:400px;">
+      <div class="modal-body">
+        <div class="confirm-ic"><svg class="ic" viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg></div>
+        <h3 style="margin:0 0 8px;font-size:15.5px;">حذف محطة</h3>
+        <p style="color:var(--ink-soft);font-size:13px;margin:0 0 4px;">هل أنت متأكد من حذف محطة «${esc(s?s.name:'')}» من قائمة الطرق السريعة؟ لا يمكن التراجع عن هذا الإجراء.</p>
+      </div>
+      <div class="modal-foot" style="justify-content:center;">
+        <button class="btn btn-ghost" onclick="closeModal()">إلغاء</button>
+        <button class="btn btn-accent" onclick="deleteHighwayStation(${id})">
+          <svg class="ic" viewBox="0 0 24 24" style="width:14px;height:14px;"><path d="M3 6h18"/><path d="M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>
+          حذف نهائي
+        </button>
+      </div>
+    </div>
+  </div>`);
+}
+async function deleteHighwayStation(id){
+  HIGHWAY_STATIONS = HIGHWAY_STATIONS.filter(x=>x.id!==id);
+  await saveHighway();
+  closeModal();
+  toast('تم حذف المحطة');
+  render();
+}
+
+/* ---- Suspended station modal ---- */
+function openSuspendedModal(id){
+  const editing = id!==null && id!==undefined;
+  const s = editing ? SUSPENDED_STATIONS.find(x=>x.id===id) : {
+    name:'', location:'', region:'', phone:'', authority:'النائب العام', suspension_date:'', notes:''
+  };
+  openOverlay(`
+  <div class="modal-overlay">
+    <div class="modal-box">
+      <div class="modal-head">
+        <div><h3>${editing?'تعديل بيانات محطة موقوفة':'إضافة محطة موقوفة'}</h3><div class="msub">${editing?('محطة رقم '+s.id):'قائمة المحطات الموقوفة'}</div></div>
+        <button class="modal-close" onclick="closeModal()"><svg class="ic" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+      </div>
+      <div class="modal-body">
+        <form id="suspendedForm">
+          <div class="form-grid">
+            <div class="field full">
+              <label>اسم المحطة <span class="req">*</span></label>
+              <input type="text" id="sf_name" value="${esc(s.name)}" required>
+            </div>
+            <div class="field">
+              <label>الموقع</label>
+              <input type="text" id="sf_location" value="${esc(s.location)}">
+            </div>
+            <div class="field">
+              <label>منطقة العمليات</label>
+              <select id="sf_region">
+                <option value="">اختر المنطقة</option>
+                ${REGIONS.map(r=>`<option value="${r}" ${s.region===r?'selected':''}>${r}</option>`).join('')}
+              </select>
+            </div>
+            <div class="field">
+              <label>رقم الهاتف</label>
+              <input type="text" id="sf_phone" value="${esc(s.phone)}">
+            </div>
+            <div class="field">
+              <label>الجهة المصدرة لقرار الإيقاف <span class="req">*</span></label>
+              <select id="sf_authority" required>
+                ${SUSPENSION_AUTHORITIES.map(a=>`<option value="${a}" ${s.authority===a?'selected':''}>${a}</option>`).join('')}
+              </select>
+            </div>
+            <div class="field full">
+              <label>تاريخ قرار الإيقاف</label>
+              <input type="date" id="sf_date" value="${toDateInput(s.suspension_date)}">
+            </div>
+            <div class="field full">
+              <label>ملاحظات (تفاصيل القرار / رقم المرجع)</label>
+              <textarea id="sf_notes" placeholder="مثال: قرار إيقاف رقم ... بتاريخ ... بخصوص ...">${esc(s.notes)}</textarea>
+            </div>
+          </div>
+        </form>
+      </div>
+      <div class="modal-foot">
+        <button class="btn btn-ghost" onclick="closeModal()">إلغاء</button>
+        <button class="btn btn-accent" onclick="saveSuspendedStation(${editing?s.id:'null'})">
+          <svg class="ic" viewBox="0 0 24 24" style="width:14px;height:14px;"><path d="M20 6 9 17l-5-5"/></svg>
+          ${editing?'حفظ التعديلات':'إضافة المحطة الموقوفة'}
+        </button>
+      </div>
+    </div>
+  </div>
+  `);
+}
+async function saveSuspendedStation(id){
+  const name = document.getElementById('sf_name').value.trim();
+  const authority = document.getElementById('sf_authority').value;
+  if(!name){ toast('يرجى إدخال اسم المحطة', 'err'); return; }
+  if(!authority){ toast('يرجى اختيار الجهة المصدرة لقرار الإيقاف', 'err'); return; }
+  const data = {
+    name, authority,
+    location: document.getElementById('sf_location').value.trim(),
+    region: document.getElementById('sf_region').value,
+    phone: document.getElementById('sf_phone').value.trim(),
+    suspension_date: document.getElementById('sf_date').value || null,
+    notes: document.getElementById('sf_notes').value.trim(),
+  };
+  if(id){
+    const idx = SUSPENDED_STATIONS.findIndex(x=>x.id===id);
+    SUSPENDED_STATIONS[idx] = {...SUSPENDED_STATIONS[idx], ...data};
+    toast('تم حفظ تعديلات المحطة بنجاح');
+  } else {
+    data.id = nextId(SUSPENDED_STATIONS);
+    SUSPENDED_STATIONS.push(data);
+    toast('تمت إضافة المحطة الموقوفة بنجاح');
+  }
+  await saveSuspended();
+  closeModal();
+  if(currentView!=='suspended') switchView('suspended'); else render();
+}
+function confirmDeleteSuspended(id){
+  const s = SUSPENDED_STATIONS.find(x=>x.id===id);
+  openOverlay(`
+  <div class="modal-overlay">
+    <div class="modal-box confirm-box" style="max-width:400px;">
+      <div class="modal-body">
+        <div class="confirm-ic"><svg class="ic" viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg></div>
+        <h3 style="margin:0 0 8px;font-size:15.5px;">حذف محطة موقوفة</h3>
+        <p style="color:var(--ink-soft);font-size:13px;margin:0 0 4px;">هل أنت متأكد من حذف محطة «${esc(s?s.name:'')}» من قائمة الموقوفين؟ لا يمكن التراجع عن هذا الإجراء.</p>
+      </div>
+      <div class="modal-foot" style="justify-content:center;">
+        <button class="btn btn-ghost" onclick="closeModal()">إلغاء</button>
+        <button class="btn btn-accent" onclick="deleteSuspendedStation(${id})">
+          <svg class="ic" viewBox="0 0 24 24" style="width:14px;height:14px;"><path d="M3 6h18"/><path d="M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>
+          حذف نهائي
+        </button>
+      </div>
+    </div>
+  </div>`);
+}
+async function deleteSuspendedStation(id){
+  SUSPENDED_STATIONS = SUSPENDED_STATIONS.filter(x=>x.id!==id);
+  await saveSuspended();
+  closeModal();
+  toast('تم حذف المحطة');
+  render();
+}
+
 /* ============ PDF EXPORT (print) ============ */
 function todayStr(){
   return new Date().toLocaleDateString('ar-LY',{year:'numeric',month:'long',day:'numeric'});
@@ -1392,6 +1881,51 @@ function exportContractsPDF(){
     <div class="print-title">${esc(filtersDesc)} — إجمالي ${list.length} عقد</div>
     <table class="print-table">
       <thead><tr><th>م</th><th>الشركة / المحطة</th><th>الموقع</th><th>رقم العقد</th><th>تاريخ الانتهاء</th><th>الأيام المتبقية</th><th>الموقف التنفيذي</th><th>ملاحظات</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div class="print-foot">منظومة إدارة بيانات محطات الوقود — شركة البريقة لتسويق النفط &nbsp;|&nbsp; تصميم وتطوير: أ. ليلى عبد الرسول، م. معتز السائح فكح</div>
+  `);
+}
+function exportHighwayPDF(){
+  const list = filteredHighway();
+  if(!list.length){ toast('لا توجد بيانات لتصديرها', 'err'); return; }
+  const filtersDesc = [
+    highwayFilters.region ? ('المنطقة: '+highwayFilters.region) : null,
+    highwayFilters.q ? ('بحث: '+highwayFilters.q) : null,
+  ].filter(Boolean).join(' — ') || 'كل محطات الطرق السريعة';
+  const rows = list.map(s=>`
+    <tr>
+      <td>${s.id}</td><td>${esc(s.name)}</td><td>${esc(s.num)||'—'}</td><td>${esc(s.location)||'—'}</td>
+      <td>${esc(s.region)||'—'}</td><td>${esc(s.phone)||'—'}</td><td>${esc(s.status)||'غير محدد'}</td><td>${esc(s.notes)||'—'}</td>
+    </tr>`).join('');
+  runPrint(`
+    ${printHead('قائمة محطات الطرق السريعة')}
+    <div class="print-title">${esc(filtersDesc)} — إجمالي ${list.length} محطة</div>
+    <table class="print-table">
+      <thead><tr><th>م</th><th>اسم المحطة</th><th>رقم المحطة</th><th>الموقع</th><th>المنطقة</th><th>الهاتف</th><th>الحالة</th><th>ملاحظات</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div class="print-foot">منظومة إدارة بيانات محطات الوقود — شركة البريقة لتسويق النفط &nbsp;|&nbsp; تصميم وتطوير: أ. ليلى عبد الرسول، م. معتز السائح فكح</div>
+  `);
+}
+function exportSuspendedPDF(){
+  const list = filteredSuspended();
+  if(!list.length){ toast('لا توجد بيانات لتصديرها', 'err'); return; }
+  const filtersDesc = [
+    suspendedFilters.authority ? ('الجهة: '+suspendedFilters.authority) : null,
+    suspendedFilters.q ? ('بحث: '+suspendedFilters.q) : null,
+  ].filter(Boolean).join(' — ') || 'كل المحطات الموقوفة';
+  const rows = list.map(s=>`
+    <tr>
+      <td>${s.id}</td><td>${esc(s.name)}</td><td>${esc(s.location)||'—'}</td><td>${esc(s.region)||'—'}</td>
+      <td>${esc(s.phone)||'—'}</td><td>${esc(s.authority)||'—'}</td>
+      <td>${s.suspension_date?fmtDate(s.suspension_date).replace(/<[^>]+>/g,''):'—'}</td><td>${esc(s.notes)||'—'}</td>
+    </tr>`).join('');
+  runPrint(`
+    ${printHead('قائمة المحطات الموقوفة')}
+    <div class="print-title">${esc(filtersDesc)} — إجمالي ${list.length} محطة</div>
+    <table class="print-table">
+      <thead><tr><th>م</th><th>اسم المحطة</th><th>الموقع</th><th>المنطقة</th><th>الهاتف</th><th>الجهة المصدرة للقرار</th><th>تاريخ الإيقاف</th><th>ملاحظات</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
     <div class="print-foot">منظومة إدارة بيانات محطات الوقود — شركة البريقة لتسويق النفط &nbsp;|&nbsp; تصميم وتطوير: أ. ليلى عبد الرسول، م. معتز السائح فكح</div>
