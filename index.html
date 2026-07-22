@@ -911,12 +911,14 @@ function render(){
 function companyKpiCard(cfg, idx){
   const colorVar = ['var(--blue-1)','var(--green)','var(--amber)','var(--teal)','var(--blue-2)'][idx % 5];
   const bgVar = ['var(--blue-bg)','var(--green-bg)','var(--amber-bg)','var(--teal-bg)','var(--blue-bg)'][idx % 5];
-  const opCount = companyData[cfg.key].filter(s=>s.status==='عاملة').length;
+  const isBpmc = cfg.key === 'bpmc';
+  const num = isBpmc ? companyData[cfg.key].length : companyData[cfg.key].filter(s=>s.status==='عاملة').length;
+  const label = isBpmc ? ('إجمالي محطات ' + cfg.short) : ('محطات عاملة — ' + cfg.short);
   return `
     <div class="kpi-card" style="--bar:${colorVar}">
       <div class="kpi-top"><div class="kpi-ic" style="--bg:${bgVar};--fg:${colorVar}">
         <svg class="ic" viewBox="0 0 24 24"><path d="M3 21h18"/><path d="M5 21V7l7-4 7 4v14"/><path d="M9 21v-6h6v6"/></svg></div></div>
-      <div class="kpi-num">${opCount}</div><div class="kpi-label">محطات عاملة — ${cfg.short}</div>
+      <div class="kpi-num">${num}</div><div class="kpi-label">${label}</div>
     </div>`;
 }
 
@@ -972,6 +974,10 @@ function renderDashboard(){
     companyRow(COMPANY_LISTS[4], 4),
   ];
   const distMax = Math.max(1, ...distCompanyRows.map(r=>r.count));
+
+  const bpmcTotal = companyData['bpmc'].length;
+  const bpmcOperating = companyData['bpmc'].filter(s=>s.status==='عاملة').length;
+  const bpmcNotOperating = bpmcTotal - bpmcOperating;
 
   return `
   <div class="kpi-grid">
@@ -1068,6 +1074,21 @@ function renderDashboard(){
         <div class="bar-track"><div class="bar-fill" style="background:${authorityColors[a]};width:${(authorityCounts[a]/Math.max(1,suspendedCount)*100).toFixed(0)}%"></div></div>
         <div class="val">${authorityCounts[a]}</div>
       </div>`).join('')}
+  </div>
+
+  <div class="panel" style="margin-bottom:22px;">
+    <h3>تفصيل محطات شركة البريقة لتسويق النفط</h3>
+    <div class="panel-sub">${bpmcTotal} محطة إجمالًا ضمن قائمة محطات شركة البريقة لتسويق النفط</div>
+    <div class="bar-row">
+      <div class="lbl">عاملة</div>
+      <div class="bar-track"><div class="bar-fill" style="background:var(--green);width:${(bpmcOperating/Math.max(1,bpmcTotal)*100).toFixed(0)}%"></div></div>
+      <div class="val">${bpmcOperating}</div>
+    </div>
+    <div class="bar-row">
+      <div class="lbl">غير عاملة</div>
+      <div class="bar-track"><div class="bar-fill" style="background:var(--gray);width:${(bpmcNotOperating/Math.max(1,bpmcTotal)*100).toFixed(0)}%"></div></div>
+      <div class="val">${bpmcNotOperating}</div>
+    </div>
   </div>
 
   <div class="panel" style="margin-bottom:22px;">
@@ -1341,7 +1362,7 @@ function renderHighwayView(){
           const m = statusMeta(s.status);
           return `<tr>
             <td class="num-col">${s.id}</td>
-            <td class="name-col">${esc(s.name)}</td>
+            <td class="name-col">${esc(s.name)}${s.location_url?` <a href="${esc(s.location_url)}" target="_blank" rel="noopener" title="عرض الموقع الجغرافي" style="color:var(--blue-1);text-decoration:none;">📍</a>`:''}</td>
             <td>${esc(s.num)||'<span class="muted">—</span>'}</td>
             <td>${esc(s.location)||'<span class="muted">—</span>'}</td>
             <td>${s.region?`<span class="region-chip">${esc(s.region)}</span>`:'<span class="muted">—</span>'}</td>
@@ -1540,7 +1561,7 @@ function renderCompanyView(cfg){
           const m = statusMeta(s.status);
           return `<tr>
             <td class="num-col">${s.id}</td>
-            <td class="name-col">${esc(s.name)}</td>
+            <td class="name-col">${esc(s.name)}${s.location_url?` <a href="${esc(s.location_url)}" target="_blank" rel="noopener" title="عرض الموقع الجغرافي" style="color:var(--blue-1);text-decoration:none;">📍</a>`:''}</td>
             <td>${esc(s.num)||'<span class="muted">—</span>'}</td>
             <td>${esc(s.location)||'<span class="muted">—</span>'}</td>
             <td>${s.region?`<span class="region-chip">${esc(s.region)}</span>`:'<span class="muted">—</span>'}</td>
@@ -1883,7 +1904,7 @@ async function deleteContract(id){
 function openHighwayModal(id){
   const editing = id!==null && id!==undefined;
   const s = editing ? HIGHWAY_STATIONS.find(x=>x.id===id) : {
-    name:'', num:'', location:'', region:'', phone:'', status:'عاملة', notes:''
+    name:'', num:'', location:'', region:'', phone:'', status:'عاملة', notes:'', location_url:''
   };
   openOverlay(`
   <div class="modal-overlay">
@@ -1925,6 +1946,10 @@ function openHighwayModal(id){
               </select>
             </div>
             <div class="field full">
+              <label>رابط الموقع الجغرافي (اختياري)</label>
+              <input type="url" id="hf_location_url" value="${esc(s.location_url)}" placeholder="https://maps.google.com/?q=...">
+            </div>
+            <div class="field full">
               <label>ملاحظات</label>
               <textarea id="hf_notes">${esc(s.notes)}</textarea>
             </div>
@@ -1953,6 +1978,7 @@ async function saveHighwayStation(id){
     location: document.getElementById('hf_location').value.trim(),
     phone: document.getElementById('hf_phone').value.trim(),
     status: document.getElementById('hf_status').value,
+    location_url: document.getElementById('hf_location_url').value.trim(),
     notes: document.getElementById('hf_notes').value.trim(),
   };
   if(id){
@@ -2118,7 +2144,7 @@ function openCompanyModal(key, id){
   const cfg = companyCfg(key);
   const editing = id!==null && id!==undefined;
   const s = editing ? companyData[key].find(x=>x.id===id) : {
-    name:'', num:'', location:'', region:'', phone:'', status:'عاملة', notes:''
+    name:'', num:'', location:'', region:'', phone:'', status:'عاملة', notes:'', location_url:''
   };
   openOverlay(`
   <div class="modal-overlay">
@@ -2160,6 +2186,10 @@ function openCompanyModal(key, id){
               </select>
             </div>
             <div class="field full">
+              <label>رابط الموقع الجغرافي (اختياري)</label>
+              <input type="url" id="cf_location_url" value="${esc(s.location_url)}" placeholder="https://maps.google.com/?q=...">
+            </div>
+            <div class="field full">
               <label>ملاحظات</label>
               <textarea id="cf_notes">${esc(s.notes)}</textarea>
             </div>
@@ -2188,6 +2218,7 @@ async function saveCompanyStation(key, id){
     location: document.getElementById('cf_location').value.trim(),
     phone: document.getElementById('cf_phone').value.trim(),
     status: document.getElementById('cf_status').value,
+    location_url: document.getElementById('cf_location_url').value.trim(),
     notes: document.getElementById('cf_notes').value.trim(),
   };
   if(id){
