@@ -458,6 +458,11 @@
     </div>
 
     <div class="nav-group-label">شركات التوزيع</div>
+    <div class="nav-item" data-view="bpmc">
+      <svg class="ic" viewBox="0 0 24 24"><path d="M12 2 4 6v6c0 5 3.4 8.5 8 10 4.6-1.5 8-5 8-10V6l-8-4Z"/></svg>
+      قائمة محطات البريقة لتسويق النفط
+      <span class="count" id="navCount_bpmc">0</span>
+    </div>
     <div class="nav-item" data-view="rahila">
       <svg class="ic" viewBox="0 0 24 24"><path d="M3 21h18"/><path d="M5 21V7l7-4 7 4v14"/><path d="M9 21v-6h6v6"/></svg>
       قائمة محطات الراحلة
@@ -564,9 +569,10 @@ const SUSPENSION_AUTHORITIES = ['النائب العام','وزارة الداخ
 
 /* ---------- generic distribution-company station lists (الراحلة، الشرارة الذهبية، نفط ليبيا، الثقة الدولية) ---------- */
 const COMPANY_LISTS = [
+  { key:'bpmc',      title:'محطات شركة البريقة لتسويق النفط', navLabel:'قائمة محطات البريقة لتسويق النفط', short:'البريقة لتسويق النفط' },
   { key:'rahila',    title:'محطات شركة الراحلة',          navLabel:'قائمة محطات الراحلة',           short:'الراحلة' },
-  { key:'sharara',   title:'محطات شركة الشرارة الذهبية',   navLabel:'قائمة محطات الشرارة الذهبية',   short:'الشرارة الذهبية' },
   { key:'naftlibya', title:'محطات شركة نفط ليبيا',         navLabel:'قائمة محطات نفط ليبيا',         short:'نفط ليبيا' },
+  { key:'sharara',   title:'محطات شركة الشرارة الذهبية',   navLabel:'قائمة محطات الشرارة الذهبية',   short:'الشرارة الذهبية' },
   { key:'thiqa',     title:'محطات شركة الثقة الدولية',     navLabel:'قائمة محطات الثقة الدولية',     short:'الثقة الدولية' },
 ];
 const companyData = {};
@@ -896,6 +902,18 @@ function render(){
 }
 
 /* ============ DASHBOARD ============ */
+function companyKpiCard(cfg, idx){
+  const colorVar = ['var(--blue-1)','var(--green)','var(--amber)','var(--teal)','var(--blue-2)'][idx % 5];
+  const bgVar = ['var(--blue-bg)','var(--green-bg)','var(--amber-bg)','var(--teal-bg)','var(--blue-bg)'][idx % 5];
+  const opCount = companyData[cfg.key].filter(s=>s.status==='عاملة').length;
+  return `
+    <div class="kpi-card" style="--bar:${colorVar}">
+      <div class="kpi-top"><div class="kpi-ic" style="--bg:${bgVar};--fg:${colorVar}">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M3 21h18"/><path d="M5 21V7l7-4 7 4v14"/><path d="M9 21v-6h6v6"/></svg></div></div>
+      <div class="kpi-num">${opCount}</div><div class="kpi-label">محطات عاملة — ${cfg.short}</div>
+    </div>`;
+}
+
 function renderDashboard(){
   const total = STATIONS.length;
   const operating = STATIONS.filter(s=>s.status==='عاملة').length;
@@ -934,13 +952,18 @@ function renderDashboard(){
     'جهة أخرى': 'var(--gray)',
   };
 
+  const companyRow = (cfg, idx) => ({
+    label: cfg.short,
+    count: companyData[cfg.key].filter(s=>s.status==='عاملة').length,
+    color: ['var(--blue-1)','var(--green)','var(--amber)','var(--teal)','var(--blue-2)'][idx % 5],
+  });
   const distCompanyRows = [
+    companyRow(COMPANY_LISTS[0], 0),
+    companyRow(COMPANY_LISTS[1], 1),
+    companyRow(COMPANY_LISTS[2], 2),
     { label:'الطرق السريعة', count: HIGHWAY_STATIONS.filter(s=>s.status==='عاملة').length, color:'var(--purple)' },
-    ...COMPANY_LISTS.map((cfg,idx)=>({
-      label: cfg.short,
-      count: companyData[cfg.key].filter(s=>s.status==='عاملة').length,
-      color: ['var(--blue-1)','var(--green)','var(--amber)','var(--teal)'][idx % 4],
-    })),
+    companyRow(COMPANY_LISTS[3], 3),
+    companyRow(COMPANY_LISTS[4], 4),
   ];
   const distMax = Math.max(1, ...distCompanyRows.map(r=>r.count));
 
@@ -966,27 +989,21 @@ function renderDashboard(){
         <svg class="ic" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg></div></div>
       <div class="kpi-num">${joining}</div><div class="kpi-label">قيد الضم لشركة التزويد</div>
     </div>
-    <div class="kpi-card" style="--bar:var(--purple)">
-      <div class="kpi-top"><div class="kpi-ic" style="--bg:var(--purple-bg);--fg:var(--purple)">
-        <svg class="ic" viewBox="0 0 24 24"><path d="M4 19 9 3h2l5 16"/><path d="M12 3v16"/><path d="M12 19h9"/><path d="M3 19h4"/></svg></div></div>
-      <div class="kpi-num">${highwayOperating}</div><div class="kpi-label">محطات عاملة — الطرق السريعة</div>
-    </div>
     <div class="kpi-card" style="--bar:var(--red-2)">
       <div class="kpi-top"><div class="kpi-ic" style="--bg:var(--red-bg);--fg:var(--red-2)">
         <svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9v6M14.5 9v6"/></svg></div></div>
       <div class="kpi-num">${suspendedCount}</div><div class="kpi-label">محطات موقوفة عن العمل</div>
     </div>
-    ${COMPANY_LISTS.map((cfg,idx)=>{
-      const colorVar = ['var(--blue-1)','var(--green)','var(--amber)','var(--teal)'][idx % 4];
-      const bgVar = ['var(--blue-bg)','var(--green-bg)','var(--amber-bg)','var(--teal-bg)'][idx % 4];
-      const opCount = companyData[cfg.key].filter(s=>s.status==='عاملة').length;
-      return `
-    <div class="kpi-card" style="--bar:${colorVar}">
-      <div class="kpi-top"><div class="kpi-ic" style="--bg:${bgVar};--fg:${colorVar}">
-        <svg class="ic" viewBox="0 0 24 24"><path d="M3 21h18"/><path d="M5 21V7l7-4 7 4v14"/><path d="M9 21v-6h6v6"/></svg></div></div>
-      <div class="kpi-num">${opCount}</div><div class="kpi-label">محطات عاملة — ${cfg.short}</div>
-    </div>`;
-    }).join('')}
+    ${companyKpiCard(COMPANY_LISTS[0], 0)}
+    ${companyKpiCard(COMPANY_LISTS[1], 1)}
+    ${companyKpiCard(COMPANY_LISTS[2], 2)}
+    <div class="kpi-card" style="--bar:var(--purple)">
+      <div class="kpi-top"><div class="kpi-ic" style="--bg:var(--purple-bg);--fg:var(--purple)">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M4 19 9 3h2l5 16"/><path d="M12 3v16"/><path d="M12 19h9"/><path d="M3 19h4"/></svg></div></div>
+      <div class="kpi-num">${highwayOperating}</div><div class="kpi-label">محطات عاملة — الطرق السريعة</div>
+    </div>
+    ${companyKpiCard(COMPANY_LISTS[3], 3)}
+    ${companyKpiCard(COMPANY_LISTS[4], 4)}
   </div>
 
   <div class="panel-row">
